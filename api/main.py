@@ -100,34 +100,29 @@ def generate_html_output(data, lang):
         """
     return ""
 
-def main():
-    if len(sys.argv) > 1:
-        input_text = sys.argv[1]
-        
-        if is_chinese(input_text):
-            lang = "chinese"
-            tool_path = os.path.join(SCRIPT_DIR, 'tools', 'process_chinese.py')
-            # 使用百度翻译函数
-            english_translation = get_baidu_translation(input_text)
+def main(input_text):
+    """接收文本输入，返回处理后的HTML内容。"""
+    if not input_text:
+        return "<p>请输入要分析的文本。</p>"
 
-            tool_result = run_tool(tool_path, input_text, english_translation)
-        else:
-            # 简单的假设，如果不是中文就当作英文处理
-            lang = "english"
-            tool_path = os.path.join(SCRIPT_DIR, 'tools', 'process_english.py')
-            # 调用百度翻译进行英译汉
-            chinese_translation = get_baidu_translation(input_text, to_lang='zh')
-            tool_result = run_tool(tool_path, input_text, chinese_translation)
-            
-        html_content = generate_html_output(tool_result, lang)
-        
-        # 这里是关键：模拟 canvas.push 的行为
-        # 在实际的 Skill 环境中，您会有一个真正的 canvas.push 函数
-        # 这里我们只是将最终的 HTML 打印出来，代表这是要推送到界面的内容
-        print(html_content)
-
+    # 注意：为了让 Vercel 能找到 tools 目录，我们需要使用相对于 SCRIPT_DIR 的路径
+    if is_chinese(input_text):
+        lang = "chinese"
+        tool_path = os.path.join(SCRIPT_DIR, 'tools', 'process_chinese.py')
+        english_translation = get_baidu_translation(input_text)
+        tool_result = run_tool(tool_path, input_text, english_translation)
     else:
-        print("<p>请输入要分析的文本。</p>")
+        lang = "english"
+        tool_path = os.path.join(SCRIPT_DIR, 'tools', 'process_english.py')
+        chinese_translation = get_baidu_translation(input_text, to_lang='zh')
+        tool_result = run_tool(tool_path, input_text, chinese_translation)
+        
+    html_content = generate_html_output(tool_result, lang)
+    return html_content
 
 if __name__ == "__main__":
-    main()
+    # 这部分保留，以便我们仍然可以从命令行独立测试 main.py
+    if len(sys.argv) > 1:
+        test_text = sys.argv[1]
+        result_html = main(test_text)
+        print(result_html)

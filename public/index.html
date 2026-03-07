@@ -218,7 +218,8 @@
 
             async function processTranscript(text) {
                 try {
-                    const response = await fetch('https://127.0.0.1:5002/process', {
+                    // Vercel 部署后，API 路径为 /api/process
+                    const response = await fetch('/api/process', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ text: text }),
