@@ -5,7 +5,6 @@ import random
 import time
 import requests
 from http.server import BaseHTTPRequestHandler
-from urllib.parse import parse_qs
 
 # 导入我们自己的处理工具
 from pypinyin import pinyin, Style

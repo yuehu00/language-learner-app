@@ -9,7 +9,11 @@
   "routes": [
     {
       "src": "/api/process",
-      "dest": "/api/index.py"
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/public/$1"
     }
   ]
 }
