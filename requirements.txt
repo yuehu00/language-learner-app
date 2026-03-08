@@ -1,4 +1,1 @@
-requests
-pypinyin
-jieba
-eng_to_ipa
+# No dependencies needed for diagnostic mode
