@@ -4,9 +4,6 @@ import hashlib
 import random
 import time
 import requests
-from http.server import BaseHTTPRequestHandler
-
-# 导入我们自己的处理工具
 from pypinyin import pinyin, Style
 import jieba
 import eng_to_ipa as ipa
@@ -32,6 +29,7 @@ def is_chinese(text):
     return any('\u4e00' <= char <= '\u9fff' for char in text)
 
 def get_baidu_translation(query, to_lang='en'):
+    # (百度翻译函数保持不变)
     from_lang = 'auto'
     endpoint = 'http://api.fanyi.baidu.com'
     path = '/api/trans/vip/translate'
@@ -52,6 +50,7 @@ def get_baidu_translation(query, to_lang='en'):
         return f"网络或翻译请求失败: {e}"
 
 def generate_html_output(data, lang):
+    # (HTML生成函数保持不变)
     if "error" in data:
         return f"<p>处理出错: {data['error']}</p>"
     if lang == "chinese":
@@ -60,15 +59,15 @@ def generate_html_output(data, lang):
         return f"""<h2>{data['text']}</h2><p><strong>中文:</strong> {data['translation']}</p><p><strong>IPA 音标:</strong> {data['ipa']}</p>"""
     return ""
 
-# --- Vercel 的原生 Serverless Handler ---
+# --- Vercel 的 WSGI 应用入口 ---
 
-class handler(BaseHTTPRequestHandler):
-    def do_POST(self):
-        content_length = int(self.headers.get('Content-Length', 0))
-        post_data = self.rfile.read(content_length)
-        
+def app(environ, start_response):
+    # 只处理对 /api/process 的 POST 请求
+    if environ['PATH_INFO'] == '/api/process' and environ['REQUEST_METHOD'] == 'POST':
         try:
-            data = json.loads(post_data)
+            content_length = int(environ.get('CONTENT_LENGTH', 0))
+            request_body = environ['wsgi.input'].read(content_length)
+            data = json.loads(request_body)
             input_text = data.get('text')
 
             if not input_text:
@@ -89,20 +88,23 @@ class handler(BaseHTTPRequestHandler):
                         "translation": get_baidu_translation(input_text, to_lang='zh'),
                         "ipa": get_phonetic_transcription(input_text)
                     }
-                
                 html_content = generate_html_output(tool_result, lang)
-                response_data = {'html': html_content}
+                response__data = {'html': html_content}
 
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json; charset=utf-8')
-            self.end_headers()
-            self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode('utf-8'))
+            status = '200 OK'
+            headers = [('Content-type', 'application/json; charset=utf-8')]
+            start_response(status, headers)
+            return [json.dumps(response_data, ensure_ascii=False).encode('utf-8')]
 
         except Exception as e:
-            self.send_response(500)
-            self.send_header('Content-type', 'application/json; charset=utf-8')
-            self.end_headers()
+            status = '500 Internal Server Error'
+            headers = [('Content-type', 'application/json; charset=utf-8')]
+            start_response(status, headers)
             error_response = {'html': f"<p style='color: red;'>服务器处理出错: {e}</p>"}
-            self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode('utf-8'))
-        
-        return
+            return [json.dumps(error_response, ensure_ascii=False).encode('utf-8')]
+    
+    # 对于所有其他请求，返回 404
+    status = '404 Not Found'
+    headers = [('Content-type', 'text/plain')]
+    start_response(status, headers)
+    return [b'Not Found']
