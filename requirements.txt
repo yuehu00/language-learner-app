@@ -1,1 +1,1 @@
-# No dependencies needed for diagnostic mode
+requests
