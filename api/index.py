@@ -1,49 +1,129 @@
-# Vercel 会将这个文件作为一个 Serverless Function 来运行
-# 我们需要将 server.py 的内容适配到这里
-
-from flask import Flask, request, jsonify, send_from_directory
+# -*- coding: utf-8 -*-
 import os
-import sys
+import json
+import hashlib
+import random
+import time
+import requests
+from flask import Flask, request, jsonify
+from pypinyin import pinyin, Style
+import jieba
+import eng_to_ipa as ipa
 
-# --- 将项目根目录添加到 Python 路径中 ---
-# Vercel 的工作目录是 /var/task/，我们的代码在 /var/task/api/
-# 需要将 /var/task/ 添加到路径，以便能导入 main 和 tools
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(BASE_DIR)
-# -----------------------------------------
+# --- 配置 ---
+BAIDU_APP_ID = '20260307002567838'
+BAIDU_APP_KEY = '710hzHTUaVxae7gAuMc1'
+# ------------
 
-# 导入我们的核心逻辑
-from main import main as process_text_logic
+# 初始化 Flask 应用
+# Vercel 会自动处理静态文件的服务，我们不需要在这里特别指定 static_folder
+app = Flask(__name__)
 
-# 将 Flask 的静态文件目录指向项目的根目录
-# Vercel 会将 public/ 或根目录下的文件作为静态资源
-app = Flask(__name__, static_folder=os.path.join(BASE_DIR, 'public'), static_url_path='')
+# --- 核心功能函数 ---
 
-# Vercel 平台不需要 CORS，因为它通常处理同源或配置好的来源
-# from flask_cors import CORS
-# CORS(app)
+def get_pinyin(text):
+    """获取汉字的拼音"""
+    return ' '.join([item[0] for item in pinyin(text, style=Style.TONE)])
 
-@app.route('/')
-def index():
-    # Vercel 会自动服务 public 目录下的 index.html
-    # 这个路由主要是为了本地测试和作为备用
-    return send_from_directory(os.path.join(BASE_DIR, 'public'), 'index.html')
+def get_related_words(text):
+    """获取相关词组"""
+    return jieba.lcut(text)
+
+def get_phonetic_transcription(text):
+    """获取英文单词的IPA音标"""
+    words = text.split()
+    transcriptions = [ipa.convert(word) for word in words]
+    return ' '.join(transcriptions)
+
+def is_chinese(text):
+    """判断字符串是否包含中文字符"""
+    return any('\u4e00' <= char <= '\u9fff' for char in text)
+
+def get_baidu_translation(query, to_lang='en'):
+    """使用官方百度翻译 API"""
+    from_lang = 'auto'
+    endpoint = 'http://api.fanyi.baidu.com'
+    path = '/api/trans/vip/translate'
+    url = endpoint + path
+    salt = random.randint(32768, 65536)
+    sign_str = BAIDU_APP_ID + query + str(salt) + BAIDU_APP_KEY
+    sign = hashlib.md5(sign_str.encode('utf-8')).hexdigest()
+    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+    payload = {'q': query, 'from': from_lang, 'to': to_lang, 'appid': BAIDU_APP_ID, 'salt': salt, 'sign': sign}
+    try:
+        response = requests.post(url, params=payload, headers=headers, timeout=5)
+        result = response.json()
+        if 'trans_result' in result:
+            return result['trans_result'][0]['dst']
+        elif 'error_msg' in result:
+            return f"翻译失败: {result['error_msg']}"
+        else:
+            return "翻译失败: 未知错误"
+    except Exception as e:
+        return f"网络或翻译请求失败: {e}"
+
+def generate_html_output(data, lang):
+    """根据处理结果生成HTML"""
+    if "error" in data:
+        return f"<p>处理出错: {data['error']}</p>"
+    if lang == "chinese":
+        return f"""
+        <h2>{data['text']}</h2>
+        <p><strong>英文:</strong> {data['translation']}</p>
+        <p><strong>拼音:</strong> {data['pinyin']}</p>
+        <p><strong>相关词组:</strong> {' / '.join(data['related_words'])}</p>
+        """
+    elif lang == "english":
+        return f"""
+        <h2>{data['text']}</h2>
+        <p><strong>中文:</strong> {data['translation']}</p>
+        <p><strong>IPA 音标:</strong> {data['ipa']}</p>
+        """
+    return ""
+
+# --- API 路由 ---
 
 @app.route('/api/process', methods=['POST'])
 def process_text_endpoint():
-    # 这是我们的核心 API 端点
+    """主 API 端点，接收文本并返回处理后的 HTML"""
     data = request.get_json()
     if not data or 'text' not in data:
         return jsonify({'error': 'No text provided'}), 400
 
-    input_text = data['text']
-    
-    # 调用 main.py 中的逻辑
-    html_content = process_text_logic(input_text)
-    
-    return jsonify({'html': html_content})
+    input_text = data.get('text')
+    if not input_text:
+        return jsonify({'html': "<p>好像没听到声音，请再试一次。</p>"})
 
-# 在 Vercel 环境下，我们不需要自己运行 app.run()
-# Vercel 会自动处理应用的启动
-# if __name__ == '__main__':
-#     app.run(...)
+    try:
+        if is_chinese(input_text):
+            lang = "chinese"
+            translation = get_baidu_translation(input_text, to_lang='en')
+            pinyin_result = get_pinyin(input_text)
+            related_words = get_related_words(input_text)
+            tool_result = {
+                "text": input_text,
+                "translation": translation,
+                "pinyin": pinyin_result,
+                "related_words": related_words
+            }
+        else:
+            lang = "english"
+            translation = get_baidu_translation(input_text, to_lang='zh')
+            ipa_result = get_phonetic_transcription(input_text)
+            tool_result = {
+                "text": input_text,
+                "translation": translation,
+                "ipa": ipa_result
+            }
+        
+        html_content = generate_html_output(tool_result, lang)
+        return jsonify({'html': html_content})
+
+    except Exception as e:
+        error_html = f"<p style='color: red;'>服务器处理出错: {e}</p>"
+        return jsonify({'html': error_html}), 500
+
+# Vercel 会自动处理根路由指向 public/index.html，我们不需要 Flask 来处理
+# @app.route('/')
+# def index():
+#     return "Welcome to the API. Please use the /api/process endpoint."

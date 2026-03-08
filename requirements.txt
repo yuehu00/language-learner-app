@@ -1,0 +1,5 @@
+Flask
+requests
+pypinyin
+jieba
+eng_to_ipa
